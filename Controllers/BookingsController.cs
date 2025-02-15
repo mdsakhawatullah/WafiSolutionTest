@@ -1,7 +1,9 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Serilog;
 using System;
 using System.Globalization;
+using Wafi.SampleTest.DbConfigure;
 using Wafi.SampleTest.Dtos;
 using Wafi.SampleTest.Entities;
 
@@ -12,11 +14,15 @@ namespace Wafi.SampleTest.Controllers
     public class BookingsController : ControllerBase
     {
         private readonly WafiDbContext _context;
+        private readonly ILogger<BookingsController> _logger;
 
-        public BookingsController(WafiDbContext context)
+        public BookingsController(WafiDbContext context, ILogger<BookingsController> logger)
         {
             _context = context;
+            _logger = logger;
         }
+
+
 
         // GET: api/Bookings
         [HttpGet("Booking")]
@@ -33,16 +39,134 @@ namespace Wafi.SampleTest.Controllers
 
         // POST: api/Bookings
         [HttpPost("Booking")]
-        public async Task<CreateUpdateBookingDto> PostBooking(CreateUpdateBookingDto booking)
+        public async Task<IActionResult> PostBooking(CreateUpdateBookingDto bookingDto)
         {
-            // TO DO: Validate if any booking time conflicts with existing data. Return error if any conflicts
 
-            //await _context.Bookings.AddAsync(booking);
-            //await _context.SaveChangesAsync();
+            //validate input model
+            if(!ModelState.IsValid)
+            {
+                _logger.LogInformation("Field Information is not correct");
+                return BadRequest(ModelState);
+            }
 
-            //return booking;
+            //  Validate time range
+            if (bookingDto.StartTime >= bookingDto.EndTime)
+            {
+                _logger.LogInformation("End time must be greater than start time.");
+                return BadRequest(new { Message = "End time must be greater than start time." });
+            }
 
-            throw new NotImplementedException();
+            //check for duplicate booking
+            bool isConflict = await _context.Bookings
+                .AnyAsync(b =>
+                                b.CarId == bookingDto.CarId &&
+                                b.BookingDate == bookingDto.BookingDate &&
+                                ((bookingDto.StartTime >= b.StartTime && bookingDto.StartTime < b.EndTime) ||
+                                 (bookingDto.EndTime > b.StartTime && bookingDto.EndTime <= b.EndTime) ||
+                                 (b.StartTime >= bookingDto.StartTime && b.EndTime <= bookingDto.EndTime))
+                        );
+
+            // check if duplicate booking is true
+            if (isConflict)
+            {
+                _logger.LogError("Booking conflict: A booking already exists for CarId {CarId} at this time.", bookingDto.CarId);
+                return Conflict(new { Message = "A booking already exists for this car at the selected time." });
+            }
+
+            //setup recurrence
+            var newBookings = GenerateRecurringBookings(bookingDto);
+
+            //save bookings to the database
+            await _context.Bookings.AddRangeAsync(newBookings);
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("New booking created for CarId {CarId} at {BookingDate} - {StartTime}", bookingDto.CarId, bookingDto.BookingDate, bookingDto.StartTime);
+
+            return CreatedAtAction(nameof(PostBooking), new { id = bookingDto.CarId }, bookingDto);
+
+        }
+
+        /// <summary>
+        /// creating recurring bookings based on user input
+        /// </summary>
+        private List<Booking> GenerateRecurringBookings (CreateUpdateBookingDto bookingDto)
+        {
+            var bookings = new List<Booking>();
+
+            //booking from user input
+            bookings.Add(new Booking
+            {
+                BookingId = Guid.NewGuid(),
+                BookingDate = bookingDto.BookingDate,
+                StartTime = bookingDto.StartTime,
+                EndTime = bookingDto.EndTime,
+                CarId = bookingDto.CarId,
+                Note = bookingDto.Note,
+                RepeatOption = bookingDto.RepeatOption,
+                RequestedOn = DateTime.UtcNow,
+                CreationTime = DateTime.UtcNow
+
+            });
+
+            // setup Daily Recurrence
+            if (bookingDto.RepeatOption == RepeatOption.Daily && bookingDto.EndRepeatDate.HasValue)
+            {
+                DateOnly nextDate = bookingDto.BookingDate.AddDays(1);
+
+                while (nextDate <= bookingDto.EndRepeatDate.Value)
+                {
+                    bookings.Add(new Booking
+                    {
+                        BookingId = Guid.NewGuid(),
+                        BookingDate = nextDate,
+                        StartTime = bookingDto.StartTime,
+                        EndTime = bookingDto.EndTime,
+                        CarId = bookingDto.CarId,
+                        Note = bookingDto.Note,
+                        RepeatOption = bookingDto.RepeatOption,
+                        RequestedOn = DateTime.UtcNow
+                    });
+
+                    nextDate = nextDate.AddDays(1);
+                }
+            }
+
+
+
+            //setup Weekly Recurrence
+            else if (bookingDto.RepeatOption == RepeatOption.Weekly && bookingDto.DaysToRepeatOn.HasValue && bookingDto.EndRepeatDate.HasValue)
+            {
+                DateOnly currentWeekStart = bookingDto.BookingDate; // Start from booking date
+
+                while (currentWeekStart <= bookingDto.EndRepeatDate.Value)
+                {
+                    foreach (DaysOfWeek day in Enum.GetValues(typeof(DaysOfWeek)))
+                    {
+                        if (day != DaysOfWeek.None && bookingDto.DaysToRepeatOn.Value.HasFlag(day))
+                        {
+                            int daysToAdd = ((int)day - (int)currentWeekStart.DayOfWeek + 7) % 7;
+                            DateOnly nextDate = currentWeekStart.AddDays(daysToAdd);
+
+                            if (nextDate > bookingDto.BookingDate && nextDate <= bookingDto.EndRepeatDate.Value)
+                            {
+                                bookings.Add(new Booking
+                                {
+                                    BookingId = Guid.NewGuid(),
+                                    BookingDate = nextDate,
+                                    StartTime = bookingDto.StartTime,
+                                    EndTime = bookingDto.EndTime,
+                                    CarId = bookingDto.CarId,
+                                    Note = bookingDto.Note,
+                                    RepeatOption = bookingDto.RepeatOption,
+                                    RequestedOn = DateTime.UtcNow
+                                });
+                            }
+                        }
+                    }
+                    currentWeekStart = currentWeekStart.AddDays(7); // Move to the next week
+                }
+            }
+            return bookings;
         }
 
         // GET: api/SeedData
@@ -109,9 +233,9 @@ namespace Wafi.SampleTest.Controllers
         {
             var cars = new List<Car>
             {
-                new Car { Id = Guid.NewGuid(), Make = "Toyota", Model = "Corolla" },
-                new Car { Id = Guid.NewGuid(), Make = "Honda", Model = "Civic" },
-                new Car { Id = Guid.NewGuid(), Make = "Ford", Model = "Focus" }
+                new Car { CarId = Guid.NewGuid(), Brand = "Toyota", Model = "Corolla" },
+                new Car { CarId = Guid.NewGuid(), Brand = "Honda", Model = "Civic" },
+                new Car { CarId = Guid.NewGuid(), Brand = "Ford", Model = "Focus" }
             };
 
             return cars;
@@ -123,12 +247,12 @@ namespace Wafi.SampleTest.Controllers
 
             var bookings = new List<Booking>
             {
-                new Booking { Id = Guid.NewGuid(), BookingDate = new DateOnly(2025, 2, 5), StartTime = new TimeSpan(10, 0, 0), EndTime = new TimeSpan(12, 0, 0), RepeatOption = RepeatOption.DoesNotRepeat, RequestedOn = DateTime.Now, CarId = cars[0].Id, Car = cars[0] },
-                new Booking { Id = Guid.NewGuid(), BookingDate = new DateOnly(2025, 2, 10), StartTime = new TimeSpan(14, 0, 0), EndTime = new TimeSpan(16, 0, 0), RepeatOption = RepeatOption.Daily, EndRepeatDate = new DateOnly(2025, 2, 20), RequestedOn = DateTime.Now, CarId = cars[1].Id, Car = cars[1] },
-                new Booking { Id = Guid.NewGuid(), BookingDate = new DateOnly(2025, 2, 15), StartTime = new TimeSpan(9, 0, 0), EndTime = new TimeSpan(10, 30, 0), RepeatOption = RepeatOption.Weekly, EndRepeatDate = new DateOnly(2025, 3, 31), RequestedOn = DateTime.Now, DaysToRepeatOn = DaysOfWeek.Monday, CarId = cars[2].Id,  Car = cars[2] },
-                new Booking { Id = Guid.NewGuid(), BookingDate = new DateOnly(2025, 3, 1), StartTime = new TimeSpan(11, 0, 0), EndTime = new TimeSpan(13, 0, 0), RepeatOption = RepeatOption.DoesNotRepeat, RequestedOn = DateTime.Now, CarId = cars[0].Id, Car = cars[0] },
-                new Booking { Id = Guid.NewGuid(), BookingDate = new DateOnly(2025, 3, 7), StartTime = new TimeSpan(8, 0, 0), EndTime = new TimeSpan(10, 0, 0), RepeatOption = RepeatOption.Weekly, EndRepeatDate = new DateOnly(2025, 3, 28), RequestedOn = DateTime.Now, DaysToRepeatOn = DaysOfWeek.Friday, CarId = cars[1].Id, Car = cars[1] },
-                new Booking { Id = Guid.NewGuid(), BookingDate = new DateOnly(2025, 3, 15), StartTime = new TimeSpan(15, 0, 0), EndTime = new TimeSpan(17, 0, 0), RepeatOption = RepeatOption.Daily, EndRepeatDate = new DateOnly(2025, 3, 20), RequestedOn = DateTime.Now, CarId = cars[2].Id,  Car = cars[2] }
+                new Booking { BookingId = Guid.NewGuid(), BookingDate = new DateOnly(2025, 2, 5), StartTime = new TimeSpan(10, 0, 0), EndTime = new TimeSpan(12, 0, 0), RepeatOption = RepeatOption.DoesNotRepeat, RequestedOn = DateTime.Now, CarId = cars[0].CarId, Car = cars[0] },
+                new Booking { BookingId = Guid.NewGuid(), BookingDate = new DateOnly(2025, 2, 10), StartTime = new TimeSpan(14, 0, 0), EndTime = new TimeSpan(16, 0, 0), RepeatOption = RepeatOption.Daily, EndRepeatDate = new DateOnly(2025, 2, 20), RequestedOn = DateTime.Now, CarId = cars[1].CarId, Car = cars[1] },
+                new Booking { BookingId = Guid.NewGuid(), BookingDate = new DateOnly(2025, 2, 15), StartTime = new TimeSpan(9, 0, 0), EndTime = new TimeSpan(10, 30, 0), RepeatOption = RepeatOption.Weekly, EndRepeatDate = new DateOnly(2025, 3, 31), RequestedOn = DateTime.Now, DaysToRepeatOn = DaysOfWeek.Monday, CarId = cars[2].CarId,  Car = cars[2] },
+                new Booking { BookingId = Guid.NewGuid(), BookingDate = new DateOnly(2025, 3, 1), StartTime = new TimeSpan(11, 0, 0), EndTime = new TimeSpan(13, 0, 0), RepeatOption = RepeatOption.DoesNotRepeat, RequestedOn = DateTime.Now, CarId = cars[0].CarId, Car = cars[0] },
+                new Booking { BookingId = Guid.NewGuid(), BookingDate = new DateOnly(2025, 3, 7), StartTime = new TimeSpan(8, 0, 0), EndTime = new TimeSpan(10, 0, 0), RepeatOption = RepeatOption.Weekly, EndRepeatDate = new DateOnly(2025, 3, 28), RequestedOn = DateTime.Now, DaysToRepeatOn = DaysOfWeek.Friday, CarId = cars[1].CarId, Car = cars[1] },
+                new Booking { BookingId = Guid.NewGuid(), BookingDate = new DateOnly(2025, 3, 15), StartTime = new TimeSpan(15, 0, 0), EndTime = new TimeSpan(17, 0, 0), RepeatOption = RepeatOption.Daily, EndRepeatDate = new DateOnly(2025, 3, 20), RequestedOn = DateTime.Now, CarId = cars[2].CarId,  Car = cars[2] }
             };
 
             return bookings;

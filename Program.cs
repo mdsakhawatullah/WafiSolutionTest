@@ -2,7 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Serilog;
 using System.Globalization;
-using Wafi.SampleTest;
+using Wafi.SampleTest.DbConfigure;
 
 var builder = WebApplication.CreateBuilder(args);
 

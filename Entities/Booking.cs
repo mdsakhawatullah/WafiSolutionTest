@@ -1,22 +1,28 @@
 ﻿using System.ComponentModel.DataAnnotations;
 using System;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Wafi.SampleTest.Entities
 {
-    public class Booking
+    public class Booking : CommonModel
     {
-        public Guid Id { get; set; }
+        [Key]
+        public Guid BookingId { get; set; }
 
-        [Required]
+        [Required(ErrorMessage = "Booking Date is required")]
         public DateOnly BookingDate { get; set; }
 
-        [Required]
+        [Required(ErrorMessage = "Start Time is required")]
         public TimeSpan StartTime { get; set; }
 
-        [Required]
+        [Required(ErrorMessage = "End Time is required")]
+        [CustomValidation(typeof(Booking), nameof(ValidateTimeRange))]
         public TimeSpan EndTime { get; set; }
 
-        [Required]
+        public string? Note { get; set; }
+
+        [Required(ErrorMessage = "Please select Repeat Option")]
         //Enum: DoesNotRepeat, Daily, Weekly
         public RepeatOption RepeatOption { get; set; }
 
@@ -27,12 +33,27 @@ namespace Wafi.SampleTest.Entities
 
         public DateTime RequestedOn { get; set; }
 
+        [BindNever]
+        [ForeignKey("Car")]
         public Guid CarId { get; set; }
 
+        //navigation property
+        [BindNever]
         public Car Car { get; set; }
+
+        public static ValidationResult ValidateTimeRange(TimeSpan endTime, ValidationContext context)
+        {
+            var instance = (Booking)context.ObjectInstance;
+            if (instance.StartTime >= endTime)
+            {
+                return new ValidationResult("End Time must be after Start Time.");
+            }
+            return ValidationResult.Success;
+        }
     }
 
     [Flags]
+    #region Enum DaysofWeek
     public enum DaysOfWeek
     {
         None = 0,
@@ -44,11 +65,14 @@ namespace Wafi.SampleTest.Entities
         Friday = 32,
         Saturday = 64
     }
+    #endregion
 
+    #region Enum RepeatOption
     public enum RepeatOption
     {
         DoesNotRepeat = 1,
         Daily = 2,
         Weekly = 3
     }
+    #endregion
 }

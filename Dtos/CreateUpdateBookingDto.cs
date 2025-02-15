@@ -7,13 +7,13 @@ namespace Wafi.SampleTest.Dtos
     {
         public Guid Id { get; set; }
 
-        [Required]
+        [Required(ErrorMessage = "Booking Date is required")]
         public DateOnly BookingDate { get; set; }
 
-        [Required]
+        [Required(ErrorMessage = "Start Time is required")]
         public TimeSpan StartTime { get; set; }
 
-        [Required]
+        [Required(ErrorMessage = "End Time is required")]
         public TimeSpan EndTime { get; set; }
 
         [Required]
@@ -27,6 +27,9 @@ namespace Wafi.SampleTest.Dtos
 
         public DateTime RequestedOn { get; set; }
 
+        [Required]
         public Guid CarId { get; set; }
+
+        public string? Note { get; set; }
     }
 }
