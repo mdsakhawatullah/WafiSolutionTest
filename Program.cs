@@ -1,11 +1,22 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Serilog;
 using System.Globalization;
 using Wafi.SampleTest;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
+
+
+//serilog
+builder.Host.UseSerilog((HostBuilderContext context, IServiceProvider services, LoggerConfiguration loggerConfiguration) =>
+{
+    loggerConfiguration
+   .ReadFrom.Configuration(context.Configuration) //read configuration settings from built-in IConfiguration
+   .ReadFrom.Services(services); //read out current app's services and make them available to serilog
+
+});
 
 builder.Services.AddControllers();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
