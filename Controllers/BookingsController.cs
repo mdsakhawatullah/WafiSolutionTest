@@ -24,18 +24,78 @@ namespace Wafi.SampleTest.Controllers
 
 
 
-        // GET: api/Bookings
-        [HttpGet("Booking")]
-        public async Task<IEnumerable<BookingCalendarDto>> GetCalendarBookings(BookingFilterDto input)
+        // GET: api/Bookings/Booking
+        [HttpGet("calenderBookings")]
+        public async Task<ActionResult<IEnumerable<CalenderViewDto>>> GetCalendarBookings([FromQuery]BookingFilterDto bookingfilterDto)
         {
+            var bookings = await _context.Bookings
+              .Where(b => b.BookingDate >= bookingfilterDto.StartBookingDate && b.BookingDate <= bookingfilterDto.EndBookingDate)
+              .Include(b => b.Car)
+              .ToListAsync();
+
+            var groupedBookings = new Dictionary<DateOnly, List<BookingCalendarDto>>();
+
+            foreach(var booking in bookings)
+            {
+             #region Handle Non-recurring Bookings
+             if(booking.RepeatOption == RepeatOption.DoesNotRepeat)
+                {
+                    AddBookingToDictionary(groupedBookings, booking, booking.BookingDate);
+
+                }
+                #endregion
+
+
+                #region Handle Daily Recurring
+
+                
+                #endregion
+            }
+
+            var calenderResponse = groupedBookings.Select(kvp => new CalenderViewDto
+            {
+                Date = kvp.Key,
+                Bookings = kvp.Value
+            });
+
+            return Ok(calenderResponse);
+
+
+
+
+
             // Get booking from the database and filter the data
             //var bookings = await _context.Bookings.ToListAsync();
 
             // TO DO: convert the database bookings to calendar view (date, start time, end time). Consiser NoRepeat, Daily and Weekly options
             //return bookings;
 
-            throw new NotImplementedException();
+
         }
+
+
+        //GET: api/Bookings/allbookings
+        [HttpGet("AllBookings")]
+        public async Task<ActionResult<IEnumerable<Booking>>> GetAllBookings()
+        {
+            return await _context.Bookings.ToListAsync();
+        }
+
+        //GET: api/Bookings/BookingByCarId
+        [HttpGet("bookingByCarId/{carId}")]
+        public async Task<ActionResult<IEnumerable<Booking>>> GetBookingByCarId(Guid carId)
+        {
+            var bookingInformation = await _context.Bookings.Where(b => b.CarId == carId).ToListAsync();
+
+            if(!bookingInformation.Any())
+            {
+                _logger.LogInformation("No Booking Information found for this carId");
+                return NotFound(new {Message = $"No Booking Information found for this carId: {carId}"});
+            }
+
+            return bookingInformation;
+        }
+
 
         // POST: api/Bookings
         [HttpPost("Booking")]
@@ -94,22 +154,26 @@ namespace Wafi.SampleTest.Controllers
             var bookings = new List<Booking>();
 
             //booking from user input
-            bookings.Add(new Booking
+            if (bookingDto.RepeatOption == RepeatOption.DoesNotRepeat)
             {
-                BookingId = Guid.NewGuid(),
-                BookingDate = bookingDto.BookingDate,
-                StartTime = bookingDto.StartTime,
-                EndTime = bookingDto.EndTime,
-                CarId = bookingDto.CarId,
-                Note = bookingDto.Note,
-                RepeatOption = bookingDto.RepeatOption,
-                RequestedOn = DateTime.UtcNow,
-                CreationTime = DateTime.UtcNow
+                bookings.Add(new Booking
+                {
+                    BookingId = Guid.NewGuid(),
+                    BookingDate = bookingDto.BookingDate,
+                    StartTime = bookingDto.StartTime,
+                    EndTime = bookingDto.EndTime,
+                    CarId = bookingDto.CarId,
+                    Note = bookingDto.Note,
+                    RepeatOption = bookingDto.RepeatOption,
+                    RequestedOn = DateTime.UtcNow,
+                    CreationTime = DateTime.UtcNow
 
-            });
+                });
+            }
+            
 
             // setup Daily Recurrence
-            if (bookingDto.RepeatOption == RepeatOption.Daily && bookingDto.EndRepeatDate.HasValue)
+             if (bookingDto.RepeatOption == RepeatOption.Daily && bookingDto.EndRepeatDate.HasValue)
             {
                 DateOnly nextDate = bookingDto.BookingDate.AddDays(1);
 
@@ -169,6 +233,36 @@ namespace Wafi.SampleTest.Controllers
             return bookings;
         }
 
+        /// <summary>
+        /// adding Booking entry into the Dictionary
+        /// </summary>
+        /// <param name="groupedBookings"></param>
+        /// <param name="booking"></param>
+        private void AddBookingToDictionary(Dictionary<DateOnly, List<BookingCalendarDto>>groupedBookings, Booking booking, DateOnly date)
+        {
+            if(!groupedBookings.ContainsKey(date))
+            {
+                groupedBookings[date] = new List<BookingCalendarDto>();
+            }
+            
+
+            groupedBookings[date].Add(new BookingCalendarDto
+            {
+                BookingId = booking.BookingId,
+                BookingDate = booking.BookingDate,
+                StartTime = booking.StartTime,
+                EndTime = booking.EndTime,
+                CarDetails = new Car
+                {
+                    CarId = booking.Car.CarId,
+                    Brand = booking.Car.Brand,
+                    Model = booking.Car.Model
+
+                }
+            });          
+
+        }
+
         // GET: api/SeedData
         // For test purpose
         [HttpGet("SeedData")]
@@ -220,7 +314,7 @@ namespace Wafi.SampleTest.Controllers
             {
                 foreach(var booking in item.Value)
                 {
-                    result.Add(new BookingCalendarDto { BookingDate = booking.BookingDate, CarModel = booking.Car.Model, StartTime = booking.StartTime, EndTime = booking.EndTime });
+                    result.Add(new BookingCalendarDto { BookingDate = booking.BookingDate, StartTime = booking.StartTime, EndTime = booking.EndTime });
                 }
             }
 
