@@ -5,6 +5,7 @@ namespace Wafi.SampleTest.Dtos
 {
     public class CreateUpdateBookingDto
     {
+        [Required]
         public Guid Id { get; set; }
 
         [Required(ErrorMessage = "Booking Date is required")]
@@ -16,7 +17,7 @@ namespace Wafi.SampleTest.Dtos
         [Required(ErrorMessage = "End Time is required")]
         public TimeSpan EndTime { get; set; }
 
-        [Required]
+        [Required(ErrorMessage = "Please select Repeat Option")]
         //Enum: DoesNotRepeat, Daily, Weekly
         public RepeatOption RepeatOption { get; set; }
 

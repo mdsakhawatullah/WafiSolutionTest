@@ -6,6 +6,7 @@ using System.Globalization;
 using Wafi.SampleTest.DbConfigure;
 using Wafi.SampleTest.Dtos;
 using Wafi.SampleTest.Entities;
+using Wafi.SampleTest.Helper;
 
 namespace Wafi.SampleTest.Controllers
 {
@@ -26,43 +27,52 @@ namespace Wafi.SampleTest.Controllers
 
         // GET: api/Bookings/Booking
         [HttpGet("calenderBookings")]
-        public async Task<ActionResult<IEnumerable<CalenderViewDto>>> GetCalendarBookings([FromQuery]BookingFilterDto bookingfilterDto)
+        public async Task<ActionResult<IEnumerable<CalenderViewDto>>> GetCalendarBookings([FromQuery]BookingFilterDto bookingFilterDto)
         {
-            var bookings = await _context.Bookings
-              .Where(b => b.BookingDate >= bookingfilterDto.StartBookingDate && b.BookingDate <= bookingfilterDto.EndBookingDate)
-              .Include(b => b.Car)
-              .ToListAsync();
-
-            var groupedBookings = new Dictionary<DateOnly, List<BookingCalendarDto>>();
-
-            foreach(var booking in bookings)
+            if(!ModelState.IsValid)
             {
-             #region Handle Non-recurring Bookings
-             if(booking.RepeatOption == RepeatOption.DoesNotRepeat)
-                {
-                    AddBookingToDictionary(groupedBookings, booking, booking.BookingDate);
-
-                }
-                #endregion
-
-
-                #region Handle Daily Recurring
-
-                
-                #endregion
+                _logger.LogInformation("Invalid Request body");
+                return BadRequest(ModelState);
             }
 
-            var calenderResponse = groupedBookings.Select(kvp => new CalenderViewDto
+            try
             {
-                Date = kvp.Key,
-                Bookings = kvp.Value
-            });
 
-            return Ok(calenderResponse);
+                bool carExists = await _context.Bookings.AnyAsync(b => b.CarId == bookingFilterDto.CarId);
 
+                if (!carExists)
+                    return NotFound("No record found for this car");
 
+                var bookings = await _context.Bookings.Where(b => b.BookingDate >= bookingFilterDto.StartBookingDate
+                                                                  && b.BookingDate <= bookingFilterDto.EndBookingDate
+                                                                  && b.CarId == bookingFilterDto.CarId)
+                                                      .Include(b => b.Car)
+                                                      .ToListAsync();
 
+                if (bookings.Count == 0)
+                    return NotFound("No records found for selected date range");
 
+                var groupedBookings = new Dictionary<DateOnly, List<BookingCalendarDto>>();
+
+                foreach(var booking in bookings)
+                {
+                    AddDictionaryHelper.AddBookingToDictionary(groupedBookings, booking, booking.BookingDate);
+                }
+
+                var calenderResponse = groupedBookings.Select(kvp => new CalenderViewDto
+                {
+                    Date = kvp.Key,
+                    Bookings = kvp.Value
+                }).ToList();
+
+                return Ok(calenderResponse);
+            }
+            catch(Exception ex)
+            {
+                _logger.LogInformation(ex.Message);
+                return StatusCode(500, $"An unexpected error {ex.Message}");
+            }
+           
 
             // Get booking from the database and filter the data
             //var bookings = await _context.Bookings.ToListAsync();
@@ -78,22 +88,47 @@ namespace Wafi.SampleTest.Controllers
         [HttpGet("AllBookings")]
         public async Task<ActionResult<IEnumerable<Booking>>> GetAllBookings()
         {
-            return await _context.Bookings.ToListAsync();
+            try
+            {
+                var bookings = await _context.Bookings.ToListAsync();
+
+                if(bookings.Count == 0)
+                {
+                    _logger.LogInformation("No records found for bookings.");
+                    return NotFound("No bookings available.");
+                }
+
+                return Ok(bookings);
+            }
+            catch(Exception ex)
+            {
+                _logger.LogError($"Error retrieving bookings: {ex.Message}");
+                return StatusCode(500, "An error occurred while fetching bookings.");
+            }
+            
         }
 
         //GET: api/Bookings/BookingByCarId
         [HttpGet("bookingByCarId/{carId}")]
         public async Task<ActionResult<IEnumerable<Booking>>> GetBookingByCarId(Guid carId)
         {
-            var bookingInformation = await _context.Bookings.Where(b => b.CarId == carId).ToListAsync();
-
-            if(!bookingInformation.Any())
+            try
             {
-                _logger.LogInformation("No Booking Information found for this carId");
-                return NotFound(new {Message = $"No Booking Information found for this carId: {carId}"});
-            }
+                var bookingInformation = await _context.Bookings.Where(b => b.CarId == carId).ToListAsync();
 
-            return bookingInformation;
+                if (!bookingInformation.Any())
+                {
+                    _logger.LogInformation($"No Booking Information found for this carId: {carId}");
+                    return NotFound($"No Booking Information found for this carId: {carId}" );
+                }
+
+                return Ok(bookingInformation);
+            }
+            catch(Exception ex)
+            {
+                _logger.LogError($"Error retrieving for this Car Id {carId}: {ex.Message}");
+                return StatusCode(500, "An error occurred while fetching bookings.");
+            }
         }
 
 
@@ -113,7 +148,7 @@ namespace Wafi.SampleTest.Controllers
             if (bookingDto.StartTime >= bookingDto.EndTime)
             {
                 _logger.LogInformation("End time must be greater than start time.");
-                return BadRequest(new { Message = "End time must be greater than start time." });
+                return BadRequest(new { Message= "End time must be greater than start time." });
             }
 
             //check for duplicate booking
@@ -134,7 +169,7 @@ namespace Wafi.SampleTest.Controllers
             }
 
             //setup recurrence
-            var newBookings = GenerateRecurringBookings(bookingDto);
+            var newBookings = BookingsHelper.GenerateRecurringBookings(bookingDto);
 
             //save bookings to the database
             await _context.Bookings.AddRangeAsync(newBookings);
@@ -143,123 +178,6 @@ namespace Wafi.SampleTest.Controllers
             _logger.LogInformation("New booking created for CarId {CarId} at {BookingDate} - {StartTime}", bookingDto.CarId, bookingDto.BookingDate, bookingDto.StartTime);
 
             return CreatedAtAction(nameof(PostBooking), new { id = bookingDto.CarId }, bookingDto);
-
-        }
-
-        /// <summary>
-        /// creating recurring bookings based on user input
-        /// </summary>
-        private List<Booking> GenerateRecurringBookings (CreateUpdateBookingDto bookingDto)
-        {
-            var bookings = new List<Booking>();
-
-            //booking from user input
-            if (bookingDto.RepeatOption == RepeatOption.DoesNotRepeat)
-            {
-                bookings.Add(new Booking
-                {
-                    BookingId = Guid.NewGuid(),
-                    BookingDate = bookingDto.BookingDate,
-                    StartTime = bookingDto.StartTime,
-                    EndTime = bookingDto.EndTime,
-                    CarId = bookingDto.CarId,
-                    Note = bookingDto.Note,
-                    RepeatOption = bookingDto.RepeatOption,
-                    RequestedOn = DateTime.UtcNow,
-                    CreationTime = DateTime.UtcNow
-
-                });
-            }
-            
-
-            // setup Daily Recurrence
-             if (bookingDto.RepeatOption == RepeatOption.Daily && bookingDto.EndRepeatDate.HasValue)
-            {
-                DateOnly nextDate = bookingDto.BookingDate.AddDays(1);
-
-                while (nextDate <= bookingDto.EndRepeatDate.Value)
-                {
-                    bookings.Add(new Booking
-                    {
-                        BookingId = Guid.NewGuid(),
-                        BookingDate = nextDate,
-                        StartTime = bookingDto.StartTime,
-                        EndTime = bookingDto.EndTime,
-                        CarId = bookingDto.CarId,
-                        Note = bookingDto.Note,
-                        RepeatOption = bookingDto.RepeatOption,
-                        RequestedOn = DateTime.UtcNow
-                    });
-
-                    nextDate = nextDate.AddDays(1);
-                }
-            }
-
-
-
-            //setup Weekly Recurrence
-            else if (bookingDto.RepeatOption == RepeatOption.Weekly && bookingDto.DaysToRepeatOn.HasValue && bookingDto.EndRepeatDate.HasValue)
-            {
-                DateOnly currentWeekStart = bookingDto.BookingDate; // Start from booking date
-
-                while (currentWeekStart <= bookingDto.EndRepeatDate.Value)
-                {
-                    foreach (DaysOfWeek day in Enum.GetValues(typeof(DaysOfWeek)))
-                    {
-                        if (day != DaysOfWeek.None && bookingDto.DaysToRepeatOn.Value.HasFlag(day))
-                        {
-                            int daysToAdd = ((int)day - (int)currentWeekStart.DayOfWeek + 7) % 7;
-                            DateOnly nextDate = currentWeekStart.AddDays(daysToAdd);
-
-                            if (nextDate > bookingDto.BookingDate && nextDate <= bookingDto.EndRepeatDate.Value)
-                            {
-                                bookings.Add(new Booking
-                                {
-                                    BookingId = Guid.NewGuid(),
-                                    BookingDate = nextDate,
-                                    StartTime = bookingDto.StartTime,
-                                    EndTime = bookingDto.EndTime,
-                                    CarId = bookingDto.CarId,
-                                    Note = bookingDto.Note,
-                                    RepeatOption = bookingDto.RepeatOption,
-                                    RequestedOn = DateTime.UtcNow
-                                });
-                            }
-                        }
-                    }
-                    currentWeekStart = currentWeekStart.AddDays(7); // Move to the next week
-                }
-            }
-            return bookings;
-        }
-
-        /// <summary>
-        /// adding Booking entry into the Dictionary
-        /// </summary>
-        /// <param name="groupedBookings"></param>
-        /// <param name="booking"></param>
-        private void AddBookingToDictionary(Dictionary<DateOnly, List<BookingCalendarDto>>groupedBookings, Booking booking, DateOnly date)
-        {
-            if(!groupedBookings.ContainsKey(date))
-            {
-                groupedBookings[date] = new List<BookingCalendarDto>();
-            }
-            
-
-            groupedBookings[date].Add(new BookingCalendarDto
-            {
-                BookingId = booking.BookingId,
-                BookingDate = booking.BookingDate,
-                StartTime = booking.StartTime,
-                EndTime = booking.EndTime,
-                CarDetails = new Car
-                {
-                    CarId = booking.Car.CarId,
-                    Brand = booking.Car.Brand,
-                    Model = booking.Car.Model
-
-                }
-            });          
 
         }
 

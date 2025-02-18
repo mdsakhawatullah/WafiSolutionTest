@@ -17,7 +17,6 @@ namespace Wafi.SampleTest.Entities
         public TimeSpan StartTime { get; set; }
 
         [Required(ErrorMessage = "End Time is required")]
-        [CustomValidation(typeof(Booking), nameof(ValidateTimeRange))]
         public TimeSpan EndTime { get; set; }
 
         public string? Note { get; set; }
@@ -40,16 +39,6 @@ namespace Wafi.SampleTest.Entities
         //navigation property
         [BindNever]
         public Car Car { get; set; }
-
-        public static ValidationResult ValidateTimeRange(TimeSpan endTime, ValidationContext context)
-        {
-            var instance = (Booking)context.ObjectInstance;
-            if (instance.StartTime >= endTime)
-            {
-                return new ValidationResult("End Time must be after Start Time.");
-            }
-            return ValidationResult.Success;
-        }
     }
 
     [Flags]
