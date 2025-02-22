@@ -56,6 +56,7 @@ namespace Wafi.SampleTest.Entities
     }
     #endregion
 
+
     #region Enum RepeatOption
     public enum RepeatOption
     {

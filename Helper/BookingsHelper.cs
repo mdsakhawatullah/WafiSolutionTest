@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using System.Linq;
 using Wafi.SampleTest.Dtos;
 using Wafi.SampleTest.Entities;
 
@@ -59,40 +60,57 @@ namespace Wafi.SampleTest.Helper
 
 
             //setup Weekly Recurrence
-            else if (bookingDto.RepeatOption == RepeatOption.Weekly && bookingDto.DaysToRepeatOn.HasValue && bookingDto.EndRepeatDate.HasValue)
+            else if (bookingDto.RepeatOption == RepeatOption.Weekly && bookingDto.DaysToRepeatOn.Any() && bookingDto.EndRepeatDate.HasValue)
             {
-                DateOnly currentWeekStart = bookingDto.BookingDate; // Start from booking date
+                DateOnly currentWeekStart = bookingDto.BookingDate; 
 
                 while (currentWeekStart <= bookingDto.EndRepeatDate.Value)
                 {
-                    foreach (DaysOfWeek day in Enum.GetValues(typeof(DaysOfWeek)))
-                    {
-                        if (day != DaysOfWeek.None && bookingDto.DaysToRepeatOn.Value.HasFlag(day))
-                        {
-                            int daysToAdd = ((int)day - (int)currentWeekStart.DayOfWeek + 7) % 7;
-                            DateOnly nextDate = currentWeekStart;
+                    DateOnly nextDate = currentWeekStart;
+                    int currentDayAsInt = ConvertToInt(currentWeekStart.DayOfWeek);
 
-                            if (nextDate <= bookingDto.EndRepeatDate.Value)
-                            {
-                                bookings.Add(new Booking
-                                {
-                                    BookingId = Guid.NewGuid(),
-                                    BookingDate = nextDate,
-                                    StartTime = bookingDto.StartTime,
-                                    EndTime = bookingDto.EndTime,
-                                    CarId = bookingDto.CarId,
-                                    Note = bookingDto.Note,
-                                    RepeatOption = bookingDto.RepeatOption,
-                                    RequestedOn = DateTime.UtcNow
-                                });
-                            }
-                        }
+
+
+                    if (bookingDto.DaysToRepeatOn.Contains((DaysOfWeek)currentDayAsInt))
+                    {
+                        bookings.Add(new Booking
+                        {
+                            BookingId = Guid.NewGuid(),
+                            BookingDate = currentWeekStart,
+                            StartTime = bookingDto.StartTime,
+                            EndTime = bookingDto.EndTime,
+                            CarId = bookingDto.CarId,
+                            Note = bookingDto.Note,
+                            RepeatOption = bookingDto.RepeatOption,
+                            RequestedOn = DateTime.UtcNow
+                        });
                     }
-                    currentWeekStart = currentWeekStart.AddDays(7); // Move to the next week
+                    
+
+                    currentWeekStart = currentWeekStart.AddDays(1); // Move to the next week
                 }
             }
             return bookings;
+
         }
 
+        private static int ConvertToInt(DayOfWeek day)
+        {
+            return day switch
+            {
+                DayOfWeek.Sunday => 1,
+                DayOfWeek.Monday => 2,
+                DayOfWeek.Tuesday => 4,
+                DayOfWeek.Wednesday => 8,
+                DayOfWeek.Thursday => 16,
+                DayOfWeek.Friday => 32,
+                DayOfWeek.Saturday => 64,
+                _ => 0
+            };
+        }
+
+
     }
+
+
 }
