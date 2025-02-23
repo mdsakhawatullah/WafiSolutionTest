@@ -25,9 +25,6 @@ namespace Wafi.SampleTest.Controllers.v1
             _logger = logger;
         }
 
-
-
-        // GET: api/Bookings/Booking
         /// <summary>
         /// To get calenderView response
         /// </summary>
@@ -242,6 +239,9 @@ namespace Wafi.SampleTest.Controllers.v1
                     _logger.LogError("Booking conflict: A booking already exists for CarId {CarId} at this time.", bookingDto.CarId);
                     return Conflict(new { Message = "A booking already exists for this car at the selected time." });
                 }
+
+                if (bookingDto.EndRepeatDate <= bookingDto.BookingDate)
+                    return BadRequest(new { Message = "EndRepeat Date must be greater than Booking Date" });
 
                 var newBookings = BookingsHelper.GenerateRecurringBookings(bookingDto);
 

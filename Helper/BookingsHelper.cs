@@ -1,4 +1,5 @@
-﻿using System.ComponentModel.DataAnnotations;
+﻿using Microsoft.AspNetCore.Http.HttpResults;
+using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using Wafi.SampleTest.Dtos;
 using Wafi.SampleTest.Entities;
@@ -25,6 +26,7 @@ namespace Wafi.SampleTest.Helper
             // setup Daily Recurrence
             if (bookingDto.RepeatOption == RepeatOption.Daily && bookingDto.EndRepeatDate.HasValue)
             {
+
                 DateOnly nextDate = bookingDto.BookingDate;
 
                 while (nextDate <= bookingDto.EndRepeatDate.Value)
