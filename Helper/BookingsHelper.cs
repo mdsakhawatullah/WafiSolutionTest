@@ -18,19 +18,7 @@ namespace Wafi.SampleTest.Helper
             //booking from user input
             if (bookingDto.RepeatOption == RepeatOption.DoesNotRepeat)
             {
-                bookings.Add(new Booking
-                {
-                    BookingId = Guid.NewGuid(),
-                    BookingDate = bookingDto.BookingDate,
-                    StartTime = bookingDto.StartTime,
-                    EndTime = bookingDto.EndTime,
-                    CarId = bookingDto.CarId,
-                    Note = bookingDto.Note,
-                    RepeatOption = bookingDto.RepeatOption,
-                    RequestedOn = DateTime.UtcNow,
-                    CreationTime = DateTime.UtcNow
-
-                });
+                bookings.Add(CreateBooking(bookingDto, bookingDto.BookingDate));
             }
 
 
@@ -41,17 +29,7 @@ namespace Wafi.SampleTest.Helper
 
                 while (nextDate <= bookingDto.EndRepeatDate.Value)
                 {
-                    bookings.Add(new Booking
-                    {
-                        BookingId = Guid.NewGuid(),
-                        BookingDate = nextDate,
-                        StartTime = bookingDto.StartTime,
-                        EndTime = bookingDto.EndTime,
-                        CarId = bookingDto.CarId,
-                        Note = bookingDto.Note,
-                        RepeatOption = bookingDto.RepeatOption,
-                        RequestedOn = DateTime.UtcNow
-                    });
+                    bookings.Add(CreateBooking(bookingDto, nextDate));
 
                     nextDate = nextDate.AddDays(1);
                 }
@@ -60,7 +38,7 @@ namespace Wafi.SampleTest.Helper
 
 
             //setup Weekly Recurrence
-            else if (bookingDto.RepeatOption == RepeatOption.Weekly && bookingDto.DaysToRepeatOn.Any() && bookingDto.EndRepeatDate.HasValue)
+             if (bookingDto.RepeatOption == RepeatOption.Weekly && bookingDto.DaysToRepeatOn.Any() && bookingDto.EndRepeatDate.HasValue)
             {
                 DateOnly currentWeekStart = bookingDto.BookingDate; 
 
@@ -73,17 +51,7 @@ namespace Wafi.SampleTest.Helper
 
                     if (bookingDto.DaysToRepeatOn.Contains((DaysOfWeek)currentDayAsInt))
                     {
-                        bookings.Add(new Booking
-                        {
-                            BookingId = Guid.NewGuid(),
-                            BookingDate = currentWeekStart,
-                            StartTime = bookingDto.StartTime,
-                            EndTime = bookingDto.EndTime,
-                            CarId = bookingDto.CarId,
-                            Note = bookingDto.Note,
-                            RepeatOption = bookingDto.RepeatOption,
-                            RequestedOn = DateTime.UtcNow
-                        });
+                        bookings.Add(CreateBooking(bookingDto, currentWeekStart));
                     }
                     
 
@@ -92,6 +60,22 @@ namespace Wafi.SampleTest.Helper
             }
             return bookings;
 
+        }
+
+        private static Booking CreateBooking(CreateUpdateBookingDto bookingDto, DateOnly bookingDate)
+        {
+            return new Booking
+            {
+                BookingId = Guid.NewGuid(),
+                BookingDate = bookingDate,
+                StartTime = bookingDto.StartTime,
+                EndTime = bookingDto.EndTime,
+                CarId = bookingDto.CarId,
+                Note = bookingDto.Note,
+                RepeatOption = bookingDto.RepeatOption,
+                RequestedOn = DateTime.UtcNow,
+                CreationTime = DateTime.UtcNow
+            };
         }
 
         private static int ConvertToInt(DayOfWeek day)

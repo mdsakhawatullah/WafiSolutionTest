@@ -86,15 +86,6 @@ namespace Wafi.SampleTest.Controllers.v1
                 _logger.LogInformation(ex.Message);
                 return StatusCode(500, $"An unexpected error {ex.Message}");
             }
-
-
-            // Get booking from the database and filter the data
-            //var bookings = await _context.Bookings.ToListAsync();
-
-            // TO DO: convert the database bookings to calendar view (date, start time, end time). Consiser NoRepeat, Daily and Weekly options
-            //return bookings;
-
-
         }
 
         [HttpGet("calenderBookingsByRepeatOption")]
@@ -107,124 +98,40 @@ namespace Wafi.SampleTest.Controllers.v1
             }
             try
             {
-                bool carExist = await _context.Bookings.AnyAsync(b => b.CarId == repeatOptionFilterDto.CarId);
-
-                if(!carExist)
+                if (!await _context.Bookings.AnyAsync(b => b.CarId == repeatOptionFilterDto.CarId))
                     return NotFound("No record found for this car");
 
                 var bookings = await _context.Bookings.Where(b => b.BookingDate >= repeatOptionFilterDto.StartBookingDate
                                                                   && b.BookingDate <= repeatOptionFilterDto.EndBookingDate
-                                                                  && b.CarId == repeatOptionFilterDto.CarId)
+                                                                  && b.CarId == repeatOptionFilterDto.CarId
+                                                                  && b.RepeatOption == repeatOptionFilterDto.Type)
                                                       .Include(b => b.Car)
                                                       .ToListAsync();
 
-                if (bookings.Count == 0)
-                    return NotFound("No records found for selected date range");
+                if (!bookings.Any())
+                    return NotFound(new { Message = $"No {repeatOptionFilterDto.Type} bookings found." });
 
-                if (repeatOptionFilterDto.Type == RepeatOption.Daily)
+                var groupedBookings = bookings
+            .GroupBy(b => b.RepeatOption)
+            .Select(kvp => new CalenderViewRepeatOption
+            {
+                Type = kvp.Key,
+                Bookings = kvp.Select(b => new BookingCalendarDto
                 {
-                    // Filter only bookings with RepeatOption.Daily
-                    var dailyBookings = bookings.Where(b => b.RepeatOption == RepeatOption.Daily).ToList();
-
-                    if (!dailyBookings.Any())
+                    BookingId = b.BookingId,
+                    BookingDate = b.BookingDate,
+                    StartTime = b.StartTime,
+                    EndTime = b.EndTime,
+                    CarDetails = new Car
                     {
-                        return NotFound(new { Message = "No daily bookings found." });
+                        CarId = b.Car.CarId,
+                        Brand = b.Car.Brand,
+                        Model = b.Car.Model
                     }
+                }).ToList()
+            }).ToList();
 
-                    // Format response in grouped calendar view
-                    var groupedBookings = dailyBookings
-                        .GroupBy(b => b.RepeatOption)  
-                        .Select(kvp => new CalenderViewRepeatOption
-                        {
-                            Type = kvp.Key,
-                            Bookings = kvp.Select(b => new BookingCalendarDto
-                            {
-                                BookingId = b.BookingId,
-                                BookingDate = b.BookingDate,
-                                StartTime = b.StartTime,
-                                EndTime = b.EndTime,
-                                CarDetails = new Car
-                                {
-                                    CarId = b.Car.CarId,
-                                    Brand = b.Car.Brand,
-                                    Model = b.Car.Model
-                                }
-                            }).ToList()
-                        }).ToList();
-
-                    return Ok(groupedBookings);
-                }
-
-                if (repeatOptionFilterDto.Type == RepeatOption.Weekly)
-                {
-                    // Filter only bookings with RepeatOption.Daily
-                    var weeklyBookings = bookings.Where(b => b.RepeatOption == RepeatOption.Weekly).ToList();
-
-                    if (!weeklyBookings.Any())
-                    {
-                        return NotFound(new { Message = "No daily bookings found." });
-                    }
-
-                    // Format response in grouped calendar view
-                    var groupedBookings = weeklyBookings
-                        .GroupBy(b => b.RepeatOption)
-                        .Select(kvp => new CalenderViewRepeatOption
-                        {
-                            Type = kvp.Key,
-                            Bookings = kvp.Select(b => new BookingCalendarDto
-                            {
-                                BookingId = b.BookingId,
-                                BookingDate = b.BookingDate,
-                                StartTime = b.StartTime,
-                                EndTime = b.EndTime,
-                                CarDetails = new Car
-                                {
-                                    CarId = b.Car.CarId,
-                                    Brand = b.Car.Brand,
-                                    Model = b.Car.Model
-                                }
-                            }).ToList()
-                        }).ToList();
-
-                    return Ok(groupedBookings);
-                }
-
-                if (repeatOptionFilterDto.Type == RepeatOption.DoesNotRepeat)
-                {
-                    // Filter only bookings with RepeatOption.Daily
-                    var doesnotRepeatBookings = bookings.Where(b => b.RepeatOption == RepeatOption.DoesNotRepeat).ToList();
-
-                    if (!bookings.Any())
-                    {
-                        return NotFound(new { Message = "No daily bookings found." });
-                    }
-
-                    // Format response in grouped calendar view
-                    var groupedBookings = doesnotRepeatBookings
-                        .GroupBy(b => b.RepeatOption)
-                        .Select(kvp => new CalenderViewRepeatOption
-                        {
-                            Type = kvp.Key,
-                            Bookings = kvp.Select(b => new BookingCalendarDto
-                            {
-                                BookingId = b.BookingId,
-                                BookingDate = b.BookingDate,
-                                StartTime = b.StartTime,
-                                EndTime = b.EndTime,
-                                CarDetails = new Car
-                                {
-                                    CarId = b.Car.CarId,
-                                    Brand = b.Car.Brand,
-                                    Model = b.Car.Model
-                                }
-                            }).ToList()
-                        }).ToList();
-
-                    return Ok(groupedBookings);
-                }
-
-                return NoContent();
-
+                return Ok(groupedBookings);
 
             }
             catch (Exception ex)
@@ -242,13 +149,16 @@ namespace Wafi.SampleTest.Controllers.v1
         /// </summary>
         /// <returns></returns>
         [HttpGet("AllBookings")]
-        public async Task<ActionResult<IEnumerable<Booking>>> GetAllBookings()
+        public async Task<ActionResult<IEnumerable<Booking>>> GetAllBookings([FromQuery] PaginationDto pagination )
         {
             try
             {
-                var bookings = await _context.Bookings.ToListAsync();
+                var bookings = await _context.Bookings
+                    .Skip((pagination.pageNumber - 1) * pagination.pageSize)
+                    .Take(pagination.pageSize)
+                    .ToListAsync();
 
-                if (bookings.Count == 0)
+                if (!bookings.Any())
                 {
                     _logger.LogInformation("No records found for bookings.");
                     return NotFound(new { Message = "No bookings available." });
@@ -259,7 +169,7 @@ namespace Wafi.SampleTest.Controllers.v1
             catch (Exception ex)
             {
                 _logger.LogError($"Error retrieving bookings: {ex.Message}");
-                return StatusCode(500, "An error occurred while fetching bookings.");
+                return StatusCode(500, new { Message = "An error occurred while fetching bookings." });
             }
 
         }
@@ -302,7 +212,7 @@ namespace Wafi.SampleTest.Controllers.v1
         [HttpPost("Booking")]
         public async Task<IActionResult> PostBooking(CreateUpdateBookingDto bookingDto)
         {
-            //  Validate input model
+
             if (!ModelState.IsValid)
             {
                 _logger.LogInformation("Field Information is not correct");
@@ -311,14 +221,13 @@ namespace Wafi.SampleTest.Controllers.v1
 
             try
             {
-                // Validate time range
+                
                 if (bookingDto.StartTime >= bookingDto.EndTime)
                 {
                     _logger.LogInformation("End time must be greater than start time.");
                     return BadRequest(new { Message = "End time must be greater than start time." });
                 }
 
-                // Check for duplicate booking (Time Conflict)
                 bool isConflict = await _context.Bookings
                     .AnyAsync(b =>
                                     b.CarId == bookingDto.CarId &&
@@ -334,16 +243,14 @@ namespace Wafi.SampleTest.Controllers.v1
                     return Conflict(new { Message = "A booking already exists for this car at the selected time." });
                 }
 
-                // Setup recurrence 
                 var newBookings = BookingsHelper.GenerateRecurringBookings(bookingDto);
 
-                if (newBookings == null || !newBookings.Any())
+                if (!newBookings.Any())
                 {
                     _logger.LogWarning("No valid bookings were generated.");
                     return BadRequest(new { Message = "No valid bookings were generated." });
                 }
 
-                // Save bookings to the database
                 await _context.Bookings.AddRangeAsync(newBookings);
                 await _context.SaveChangesAsync();
 
