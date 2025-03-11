@@ -28,7 +28,7 @@ namespace Wafi.SampleTest.Dtos
 
         public DateTime RequestedOn { get; set; }
 
-        [Required]
+        [Required(ErrorMessage = "Car Id can't be blank")]
         public Guid CarId { get; set; }
 
         public string? Note { get; set; }

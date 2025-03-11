@@ -45,7 +45,7 @@ namespace Wafi.SampleTest.Controllers.v1
                 bool carExists = await _context.Bookings.AnyAsync(b => b.CarId == bookingFilterDto.CarId);
 
                 if (!carExists)
-                    return NotFound("No record found for this car");
+                    return NotFound($"No record found for this car; {bookingFilterDto.CarId}");
 
                 var bookings = await _context.Bookings.Where(b => b.BookingDate >= bookingFilterDto.StartBookingDate
                                                                   && b.BookingDate <= bookingFilterDto.EndBookingDate
@@ -54,7 +54,7 @@ namespace Wafi.SampleTest.Controllers.v1
                                                       .ToListAsync();
 
                 if (bookings.Count == 0)
-                    return NotFound("No records found for selected date range");
+                    return NotFound(new { Message = $"No records found carId: {bookingFilterDto.CarId} for selected date range" });
 
                 var groupedBookings = bookings
                                       .GroupBy(b => b.BookingDate)
@@ -80,7 +80,7 @@ namespace Wafi.SampleTest.Controllers.v1
             }
             catch (Exception ex)
             {
-                _logger.LogInformation(ex.Message);
+                _logger.LogError(ex.Message);
                 return StatusCode(500, $"An unexpected error {ex.Message}");
             }
         }
@@ -96,7 +96,7 @@ namespace Wafi.SampleTest.Controllers.v1
             try
             {
                 if (!await _context.Bookings.AnyAsync(b => b.CarId == repeatOptionFilterDto.CarId))
-                    return NotFound("No record found for this car");
+                    return NotFound(new { Message = "No record found for this car" });
 
                 var bookings = await _context.Bookings.Where(b => b.BookingDate >= repeatOptionFilterDto.StartBookingDate
                                                                   && b.BookingDate <= repeatOptionFilterDto.EndBookingDate
@@ -139,8 +139,6 @@ namespace Wafi.SampleTest.Controllers.v1
 
         }
 
-
-        //GET: api/Bookings/allbookings
         /// <summary>
         /// To get all bookings from the list
         /// </summary>
@@ -148,6 +146,12 @@ namespace Wafi.SampleTest.Controllers.v1
         [HttpGet("AllBookings")]
         public async Task<ActionResult<IEnumerable<Booking>>> GetAllBookings([FromQuery] PaginationDto pagination )
         {
+            if(!ModelState.IsValid)
+            {
+                _logger.LogInformation("Invalid Request body");
+                return BadRequest(ModelState);
+            }
+
             try
             {
                 var bookings = await _context.Bookings
@@ -171,15 +175,21 @@ namespace Wafi.SampleTest.Controllers.v1
 
         }
 
-        //GET: api/Bookings/BookingByCarId
         /// <summary>
         /// To get car Information by carId
         /// </summary>
         /// <param name="carId">GUID type carId</param>
         /// <returns></returns>
         [HttpGet("bookingByCarId/{carId}")]
-        public async Task<ActionResult<IEnumerable<Booking>>> GetBookingByCarId(Guid carId)
+        public async Task<ActionResult<IEnumerable<Booking>>> GetBookingByCarId(Guid? carId)
         {
+            if (carId == null)
+            {
+                _logger.LogInformation("Field Information is not correct");
+                return BadRequest(new { Message = "CarId can't be empty" });
+            }
+                
+
             try
             {
                 var bookingInformation = await _context.Bookings.Where(b => b.CarId == carId).ToListAsync();
@@ -199,8 +209,6 @@ namespace Wafi.SampleTest.Controllers.v1
             }
         }
 
-
-        // POST: api/Bookings
         /// <summary>
         /// To create booking
         /// </summary>
@@ -236,12 +244,18 @@ namespace Wafi.SampleTest.Controllers.v1
 
                 if (isConflict)
                 {
-                    _logger.LogError("Booking conflict: A booking already exists for CarId {CarId} at this time.", bookingDto.CarId);
-                    return Conflict(new { Message = "A booking already exists for this car at the selected time." });
+                    _logger.LogWarning("Booking conflict: A booking already exists for CarId {CarId} at this time.", bookingDto.CarId);
+                    return Conflict(new { Message = $"A booking already exists for this carId {bookingDto.CarId} at the selected time." });
                 }
 
                 if (bookingDto.EndRepeatDate <= bookingDto.BookingDate)
-                    return BadRequest(new { Message = "EndRepeat Date must be greater than Booking Date" });
+                    return BadRequest(new { Message = $"EndRepeat Date : {bookingDto.EndRepeatDate} must be greater than Booking Date" });
+
+                if(bookingDto.RepeatOption == RepeatOption.Daily || bookingDto.RepeatOption == RepeatOption.Weekly)
+                {
+                    if (bookingDto.EndRepeatDate == null)
+                        return BadRequest(new { Message = "EndRepeat Date can't be blank" });
+                }
 
                 var newBookings = BookingsHelper.GenerateRecurringBookings(bookingDto);
 

@@ -16,14 +16,11 @@ namespace Wafi.SampleTest.Helper
         {
             var bookings = new List<Booking>();
 
-            //booking from user input
             if (bookingDto.RepeatOption == RepeatOption.DoesNotRepeat)
             {
                 bookings.Add(CreateBooking(bookingDto, bookingDto.BookingDate));
             }
 
-
-            // setup Daily Recurrence
             if (bookingDto.RepeatOption == RepeatOption.Daily && bookingDto.EndRepeatDate.HasValue)
             {
 
@@ -37,10 +34,8 @@ namespace Wafi.SampleTest.Helper
                 }
             }
 
-
-
-            //setup Weekly Recurrence
              if (bookingDto.RepeatOption == RepeatOption.Weekly && bookingDto.DaysToRepeatOn.Any() && bookingDto.EndRepeatDate.HasValue)
+
             {
                 DateOnly currentWeekStart = bookingDto.BookingDate; 
 
@@ -49,21 +44,16 @@ namespace Wafi.SampleTest.Helper
                     DateOnly nextDate = currentWeekStart;
                     int currentDayAsInt = ConvertToInt(currentWeekStart.DayOfWeek);
 
-
-
                     if (bookingDto.DaysToRepeatOn.Contains((DaysOfWeek)currentDayAsInt))
                     {
                         bookings.Add(CreateBooking(bookingDto, currentWeekStart));
                     }
-                    
-
-                    currentWeekStart = currentWeekStart.AddDays(1); // Move to the next week
+                       currentWeekStart = currentWeekStart.AddDays(1);
                 }
             }
             return bookings;
 
         }
-
         private static Booking CreateBooking(CreateUpdateBookingDto bookingDto, DateOnly bookingDate)
         {
             return new Booking
